@@ -1,156 +1,145 @@
-# This does not have any encryption
-
 import threading
 import socket
 import argparse
 import os
 import sys
 import tkinter as tk
-
+from cryptography.fernet import Fernet
 
 class Send(threading.Thread):
-
-    # Listens for user input from command line
-
-    # sock the connected sock object
-    # name (str): The username provided by the user
-
-    def __init__(self, sock, name):
+    def __init__(self, sock, name, cipher_suite):
         super().__init__()
         self.sock = sock
         self.name = name
-
+        self.cipher_suite = cipher_suite
 
     def run(self):
-
-        # Listen for the user input from the command line and send it to the server
-        # Typing "Quit" will close the connection and exit the app
-
-        while True: 
-
+        while True:
             print('{}: '.format(self.name), end='')
             sys.stdout.flush()
             message = sys.stdin.readline()[:-1]
 
             if message == "QUIT":
-                self.sock.sendall('Server: {} has left the chat.'.format(self.name).encode('ascii'))
+                encrypted_message = self.cipher_suite.encrypt(
+                    'Server: {} has left the chat.'.format(self.name).encode('ascii'))
+                self.sock.sendall(encrypted_message)
                 break
+            else:
+                encrypted_message = self.cipher_suite.encrypt(
+                    '{}: {}'.format(self.name, message).encode('ascii'))
+                self.sock.sendall(encrypted_message)
 
-
-            # send message to server for broadcasting
-            else:  
-                 self.sock.sendall('{}: {}'.format(self.name, message).encode('ascii'))
-
-        print('\nQuitting...') 
+        print('\nQuitting...')
         self.sock.close()
-        os.exit(0)
+        os._exit(0)
 
-    
 class Receive(threading.Thread):
-
-    # Listens for incoming messages from the server
-
-    def __init__(self, sock, name):
+    def __init__(self, sock, name, cipher_suite):
         super().__init__()
         self.sock = sock
         self.name = name
+        self.cipher_suite = cipher_suite
         self.messages = None
 
-    
     def run(self):
-
-        # Receives data from the server and displays it in the gui
-
         while True:
-            message = self.sock.recv(1042).decode('ascii')
+            encrypted_message = self.sock.recv(1024)
+            message = self.cipher_suite.decrypt(encrypted_message).decode('ascii')
 
             if message:
-                
                 if self.messages:
                     self.messages.insert(tk.END, message)
-                    print('Hi')
-                    print('\r{}\n{}: '.format(message, self.name), end='')
-                
                 else:
                     print('\r{}\n{}: '.format(message, self.name), end='')
-
-            else: 
-                print('\n No. We have lost connection to the server!')
+            else:
+                print('\nWe have lost connection to the server!')
                 print('\nQuitting...')
                 self.sock.close()
-                os.__exit(0)
+                os._exit(0)
 
-
-class Client: 
-
+class Client:
     def __init__(self, host, port):
-
         self.host = host
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.name = None
         self.messages = None
+        self.cipher_suite = None
 
-    
     def start(self):
-
         print('Trying to connect to {}:{}...'.format(self.host, self.port))
-        
         self.sock.connect((self.host, self.port))
+        print('Successfully connected to {}:{}'.format(self.host, self.port))
 
-        print('Succesfully connected to {}:{}'.format(self.host, self.port))
+    def login(self, username, password):
+        server_message = self.sock.recv(1024).decode('ascii')
+        if server_message == "LOGIN":
+            self.name = username
+            self.sock.sendall(self.name.encode('ascii'))
 
-        print()
+        server_message = self.sock.recv(1024).decode('ascii')
+        if server_message == "PASSWORD":
+            self.sock.sendall(password.encode('ascii'))
 
-        self.name = input('Your name: ')
+            server_message = self.sock.recv(1024).decode('ascii')
+            if server_message == "SUCCESS":
+                print("Logged in successfully!")
+                self.cipher_suite = Fernet(self.sock.recv(1024))  # Receive the shared encryption key
+                return True
+            else:
+                print("Login failed!")
+                return False
+        return False
 
-        print()
 
-        print('Welcome, {}! Getting ready to send and recieve messages...'.format(self.name))
-
-        # Create send and receieve threads
-
-        send = Send( self.sock, self.name)
-
-        receive = Receive(self.sock, self.name)
-
-        # start send and receive thread
-
-        send.start()
-        receive.start()
-
-        self.sock.sendall('Server: {} has joined the chat. Say Hi!'.format(self.name).encode('ascii'))
-        print('\rReady! Leave the chatroom by anytime by typing QUIT\n')
-        print('{}: '.format(self.name), end='')
-
-        return receive
-    
-    def exit(self, textInput):
-
-        # Sends textInput data from the GUI
+    def send(self, textInput):
         message = textInput.get()
         textInput.delete(0, tk.END)
         self.messages.insert(tk.END, '{}: {}'.format(self.name, message))
 
-        # Type "QUIT" to leave the chatroom
         if message == "QUIT":
-            self.sock.sendall('Server: {} has left the chat'.format(self.name).encode('ascii'))
+            encrypted_message = self.cipher_suite.encrypt(
+                'Server: {} has left the chat.'.format(self.name).encode('ascii'))
+            self.sock.sendall(encrypted_message)
             print('\nQuitting...')
             self.sock.close()
-            os.exit(0)
+            os._exit(0)
+        else:
+            encrypted_message = self.cipher_suite.encrypt(
+                '{}: {}'.format(self.name, message).encode('ascii'))
+            self.sock.sendall(encrypted_message)
 
-        # Send message to the server for broadcasting
-
-        else: 
-            self.sock.sendall('{}: {}'.format(self.name, message).encode('ascii'))
-
-        
 def main(host, port):
-    # initialize and run GUI app
+    client = Client(host, port)
+    client.start()
 
-    client = Client(host,port)
-    receive = client.start()
+    window = tk.Tk()
+    window.title('Login')
 
+    tk.Label(window, text="Username").grid(row=0)
+    tk.Label(window, text="Password").grid(row=1)
+
+    username_entry = tk.Entry(window)
+    password_entry = tk.Entry(window, show="*")
+
+    username_entry.grid(row=0, column=1)
+    password_entry.grid(row=1, column=1)
+
+    def attempt_login():
+        username = username_entry.get()
+        password = password_entry.get()
+        if client.login(username, password):
+            window.destroy()
+            chat_window(client)
+        else:
+            tk.Label(window, text="Login failed, try again!").grid(row=3, columnspan=2)
+
+    login_button = tk.Button(window, text="Login", command=attempt_login)
+    login_button.grid(row=2, columnspan=2)
+
+    window.mainloop()
+
+def chat_window(client):
     window = tk.Tk()
     window.title('Chatroom')
 
@@ -161,7 +150,9 @@ def main(host, port):
     messages.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
     client.messages = messages
+    receive = Receive(client.sock, client.name, client.cipher_suite)
     receive.messages = messages
+    receive.start()
 
     fromMessage.grid(row=0, column=0, columnspan=2, sticky="nsew")
     fromEntry = tk.Frame(master=window)
@@ -171,11 +162,10 @@ def main(host, port):
     textInput.bind("<Return>", lambda x: client.send(textInput))
     textInput.insert(0, "Write your message here")
 
-    
     btnSend = tk.Button(
-        master = window,
-        text= 'Send',
-        command = lambda: client.send(textInput)
+        master=window,
+        text='Send',
+        command=lambda: client.send(textInput)
     )
 
     fromEntry.grid(row=1, column=0, padx=10, sticky="ew")
@@ -183,19 +173,16 @@ def main(host, port):
 
     window.rowconfigure(0, minsize=500, weight=1)
     window.rowconfigure(1, minsize=50, weight=0)
-
     window.columnconfigure(0, minsize=500, weight=1)
     window.columnconfigure(1, minsize=50, weight=0)
 
     window.mainloop()
 
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Chatroom Client")
+    parser.add_argument('host', help='Host to connect to')
+    parser.add_argument('-p', metavar='PORT', type=int, default=1060, help='TCP port (default 1060)')
 
-if __name__ == '__main__' :
-    parser = argparse.ArgumentParser(description="Chatroom Server")
-    parser.add_argument('host', help='Interface the server listens at')
-    parser.add_argument('-p', metavar='PORT', type=int, default=1060, help='TCP port(default 1060)')
+    args = parser.parse_args()
 
-
-    args = parser.parse_args()   
-    
     main(args.host, args.p)

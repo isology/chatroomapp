@@ -4,96 +4,100 @@ import argparse
 import os
 from cryptography.fernet import Fernet
 
-class Server(threading.Thread):
+# Use the generated key here
+key = b'OPPIx8Z1wOjjWwMDqoFSiYpO2bDmaitCiVYn0uhwUWQ='
+cipher_suite = Fernet(key)
 
+class Server(threading.Thread):
     def __init__(self, host, port):
         super().__init__()
         self.connections = []
         self.host = host
         self.port = port
-        self.user_credentials = {
-            "user1": "password1",
-            "user2": "password2",
-            # Add more users and passwords here
-        }
-        self.secret_key = Fernet.generate_key()  # One shared key for all clients
-        self.cipher_suite = Fernet(self.secret_key)
+        self.lock = threading.Lock()
 
     def run(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((self.host, self.port))
         sock.listen(5)
-        print("Listening at ", sock.getsockname())
+        print("Listening at", sock.getsockname())
 
         while True:
-            sc, sockname = sock.accept()
-            print(f"Accepting a new connection from {sc.getpeername()} to {sc.getsockname()}")
+            sc, _ = sock.accept()
+            print(f"Accepted connection from {sc.getpeername()}")
 
-            # Handle login
-            if self.authenticate(sc):
-                server_socket = ServerSocket(sc, sockname, self)
-                server_socket.start()
-                self.connections.append(server_socket)
-                print("Ready to receive messages from", sc.getpeername())
-            else:
-                sc.close()
-
-    def authenticate(self, sc):
-        sc.sendall("LOGIN".encode('ascii'))
-        username = sc.recv(1024).decode('ascii')
-        sc.sendall("PASSWORD".encode('ascii'))
-        password = sc.recv(1024).decode('ascii')
-
-        if self.user_credentials.get(username) == password:
-            sc.sendall("SUCCESS".encode('ascii'))
-            sc.sendall(self.secret_key)  # Send the encryption key to the client
-            return True
-        else:
-            sc.sendall("FAILURE".encode('ascii'))
-            return False
+            client_thread = ClientHandler(sc, self)
+            client_thread.start()
+            with self.lock:
+                self.connections.append(client_thread)
 
     def broadcast(self, message, source):
-        encrypted_message = self.cipher_suite.encrypt(message.encode('ascii'))
-        for connection in self.connections:
-            if connection.sockname != source:
-                connection.send(encrypted_message)
+        encrypted_message = cipher_suite.encrypt(message.encode('ascii'))
+        with self.lock:
+            for connection in self.connections:
+                if connection.client_socket != source:
+                    connection.send(encrypted_message)
 
-    def removeConnection(self, connection):
-        self.connections.remove(connection)
+    def remove_connection(self, connection):
+        with self.lock:
+            if connection in self.connections:
+                self.connections.remove(connection)
 
-
-class ServerSocket(threading.Thread):
-
-    def __init__(self, sc, sockname, server):
+class ClientHandler(threading.Thread):
+    def __init__(self, client_socket, server):
         super().__init__()
-        self.sc = sc
-        self.sockname = sockname
+        self.client_socket = client_socket
         self.server = server
+        self.username = None
 
     def run(self):
-        while True:
-            encrypted_message = self.sc.recv(1024)
-            message = self.server.cipher_suite.decrypt(encrypted_message).decode('ascii')
+        if not self.authenticate():
+            self.client_socket.close()
+            return
 
-            if message:
-                print(f"{self.sockname} says {message}")
-                self.server.broadcast(message, self.sockname)
-            else:
-                print(f"{self.sockname} has closed the connection")
-                self.sc.close()
-                self.server.removeConnection(self)
-                return
+        while True:
+            try:
+                encrypted_message = self.client_socket.recv(1024)
+                if encrypted_message:
+                    message = cipher_suite.decrypt(encrypted_message).decode('ascii')
+                    print(f"Received message: {message}")
+                    self.server.broadcast(message, self.client_socket)
+                else:
+                    break
+            except ConnectionResetError:
+                break
+
+        print(f"{self.username} has disconnected")
+        self.client_socket.close()
+        self.server.remove_connection(self)
+
+    def authenticate(self):
+        valid_users = {
+            "admin": "password123",
+            "user1": "password456",
+            "user2": "password789"
+        }
+
+        username = self.client_socket.recv(1024).decode('ascii').strip()
+        password = self.client_socket.recv(1024).decode('ascii').strip()
+        print(f"Authenticating {username}")
+
+        if username in valid_users and valid_users[username] == password:
+            self.username = username
+            self.client_socket.sendall("AUTH_SUCCESS".encode('ascii'))
+            return True
+        else:
+            self.client_socket.sendall("AUTH_FAILED".encode('ascii'))
+            return False
 
     def send(self, message):
-        self.sc.sendall(message)
-
+        self.client_socket.sendall(message)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Chatroom Server")
     parser.add_argument('host', help='Interface the server listens at')
-    parser.add_argument('-p', metavar='PORT', type=int, default=1060, help='TCP port(default 1060)')
-
+    parser.add_argument('-p', metavar='PORT', type=int, default=1060, help='TCP port (default 1060)')
     args = parser.parse_args()
 
     server = Server(args.host, args.p)
