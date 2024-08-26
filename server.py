@@ -1,9 +1,9 @@
-# server.py
 import threading
 import socket
 import argparse
-import sqlite3
+import os
 from cryptography.fernet import Fernet
+import sqlite3
 
 class Server(threading.Thread):
 
@@ -14,6 +14,12 @@ class Server(threading.Thread):
         self.port = port
         self.secret_key = Fernet.generate_key()  # One shared key for all clients
         self.cipher_suite = Fernet(self.secret_key)
+
+        # Initialize database connection
+        self.conn = sqlite3.connect('users.db', check_same_thread=False)
+        self.cursor = self.conn.cursor()
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS users
+                               (username TEXT PRIMARY KEY, password TEXT)''')
 
     def run(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -26,8 +32,7 @@ class Server(threading.Thread):
             sc, sockname = sock.accept()
             print(f"Accepting a new connection from {sc.getpeername()} to {sc.getsockname()}")
 
-            # Handle login
-            if self.authenticate(sc):
+            if self.handle_client(sc):
                 server_socket = ServerSocket(sc, sockname, self)
                 server_socket.start()
                 self.connections.append(server_socket)
@@ -35,31 +40,48 @@ class Server(threading.Thread):
             else:
                 sc.close()
 
+    def handle_client(self, sc):
+        try:
+            action = sc.recv(1024).decode('ascii')
+            if action == "REGISTER":
+                return self.register(sc)
+            elif action == "LOGIN":
+                return self.authenticate(sc)
+        except Exception as e:
+            print(f"Error handling client: {e}")
+            return False
+
+    def register(self, sc):
+        sc.sendall("NEW_USERNAME".encode('ascii'))
+        username = sc.recv(1024).decode('ascii')
+        sc.sendall("NEW_PASSWORD".encode('ascii'))
+        password = sc.recv(1024).decode('ascii')
+
+        self.cursor.execute('SELECT * FROM users WHERE username=?', (username,))
+        if self.cursor.fetchone():
+            sc.sendall("USER_EXISTS".encode('ascii'))
+            return False
+        else:
+            self.cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, password))
+            self.conn.commit()
+            sc.sendall("REGISTER_SUCCESS".encode('ascii'))
+            sc.sendall(self.secret_key)  # Send the encryption key to the client
+            return True
+
     def authenticate(self, sc):
         sc.sendall("LOGIN".encode('ascii'))
         username = sc.recv(1024).decode('ascii')
         sc.sendall("PASSWORD".encode('ascii'))
         password = sc.recv(1024).decode('ascii')
 
-        # Check credentials from the database
-        if self.check_credentials(username, password):
+        self.cursor.execute('SELECT * FROM users WHERE username=? AND password=?', (username, password))
+        if self.cursor.fetchone():
             sc.sendall("SUCCESS".encode('ascii'))
             sc.sendall(self.secret_key)  # Send the encryption key to the client
             return True
         else:
             sc.sendall("FAILURE".encode('ascii'))
             return False
-
-    def check_credentials(self, username, password):
-        conn = sqlite3.connect('chat_users.db')
-        cursor = conn.cursor()
-
-        # Query to check if the user exists and password matches
-        cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
-        result = cursor.fetchone()
-        conn.close()
-
-        return result is not None
 
     def broadcast(self, message, source):
         encrypted_message = self.cipher_suite.encrypt(message.encode('ascii'))
