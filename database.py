@@ -1,21 +1,25 @@
 import sqlite3
 
-# Create a connection to the SQLite database
-conn = sqlite3.connect('chat_users.db')
-cursor = conn.cursor()
+def create_users_table():
+    conn = sqlite3.connect('chat.db')
+    cursor = conn.cursor()
+    
+    # Create the users table if it doesn't exist
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password TEXT NOT NULL
+        )
+    ''')
 
-# Create a table to store user credentials
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY,
-    password TEXT NOT NULL
-)
-''')
+    cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", ("ismail", "ismail"))
+    cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", ("ali", "ali"))
 
-# Insert some users (you can do this manually or through code)
-cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", ("user1", "password1"))
-cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", ("user2", "password2"))
+    
+    conn.commit()
+    conn.close()
+    print("Users table created successfully.")
 
-# Commit the changes and close the connection
-conn.commit()
-conn.close()
+if __name__ == "__main__":
+    create_users_table()

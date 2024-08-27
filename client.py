@@ -77,9 +77,9 @@ class Client:
         self.sock.connect((self.host, self.port))
         print('Successfully connected to {}:{}'.format(self.host, self.port))
 
-    def choose_login_or_register(self):
+    def choose_login_or_register_or_update(self):
         window = tk.Tk()
-        window.title('Login or Register')
+        window.title('Login or Register or Update')
 
         def set_choice(choice):
             self.choice = choice
@@ -87,6 +87,8 @@ class Client:
 
         tk.Button(window, text="Login", command=lambda: set_choice('LOGIN')).pack()
         tk.Button(window, text="Register", command=lambda: set_choice('REGISTER')).pack()
+        tk.Button(window, text="Update", command=lambda: set_choice('UPDATE')).pack()
+
 
         window.mainloop()
 
@@ -131,6 +133,62 @@ class Client:
                 print("Login failed!")
                 return False
         return False
+    
+    def update(self, username, password):
+        print("Update function called with username:", username)
+
+        # Send UPDATE command to server
+        self.sock.sendall("UPDATE".encode('ascii'))
+
+        # Expect to receive confirmation from server that it's ready to receive the username
+        server_message = self.sock.recv(1024).decode('ascii')
+        print("Received from server:", server_message)
+
+        if server_message == "UPDATE_USERNAME":
+            # Send current username
+            self.sock.sendall(username.encode('ascii'))
+            print(f"Sent username for update: {username}")
+
+            # Receive confirmation from server that it received the username
+            server_message = self.sock.recv(1024).decode('ascii')
+            print("Received from server:", server_message)
+
+            if server_message == "UPDATE_PASSWORD":
+                # Send current password
+                self.sock.sendall(password.encode('ascii'))
+                print(f"Sent password for update: {password}")
+
+                # Receive confirmation from server about the password
+                server_message = self.sock.recv(1024).decode('ascii')
+                print("Received from server:", server_message)
+
+                if server_message == "FAILURE":
+                    print("Update failed: Username does not exist.")
+                    return False
+                else:
+                    # Proceed to update the username and password
+                    new_username = input("Enter new username: ")
+                    self.sock.sendall(new_username.encode('ascii'))
+                    print(f"Sent new username: {new_username}")
+
+                    new_password = input("Enter new password: ")
+                    self.sock.sendall(new_password.encode('ascii'))
+                    print(f"Sent new password: {new_password}")
+
+                    # Wait for final server response
+                    server_message = self.sock.recv(1024).decode('ascii')
+                    print("Final server response:", server_message)
+                    if server_message == "SUCCESS":
+                        print("Update successful.")
+                        return True
+                    else:
+                        print("Update failed.")
+                        return False
+
+
+
+
+
 
     def send(self, textInput):
         message = textInput.get()
@@ -192,7 +250,7 @@ def main(host, port):
     client = Client(host, port)
     client.start()
 
-    choice = client.choose_login_or_register()
+    choice = client.choose_login_or_register_or_update()
 
     window = tk.Tk()
     window.title('Register' if choice == 'REGISTER' else 'Login')
@@ -221,6 +279,12 @@ def main(host, port):
                 chat_window(client)
             else:
                 tk.Label(window, text="Login failed, try again!").grid(row=3, columnspan=2)
+        elif choice == 'UPDATE':
+            if client.update(username, password):
+                window.destroy()
+                chat_window(client)
+            else:
+                tk.Label(window, text="Update failed, try again!").grid(row=3, columnspan=2)
 
     auth_button = tk.Button(window, text="Submit", command=attempt_authentication)
     auth_button.grid(row=2, columnspan=2)

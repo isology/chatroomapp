@@ -43,10 +43,13 @@ class Server(threading.Thread):
     def handle_client(self, sc):
         try:
             action = sc.recv(1024).decode('ascii')
+            print(f"Action received: {action}")
             if action == "REGISTER":
                 return self.register(sc)
             elif action == "LOGIN":
                 return self.authenticate(sc)
+            elif action == "UPDATE":
+                return self.updateUser(sc)
         except Exception as e:
             print(f"Error handling client: {e}")
             return False
@@ -82,6 +85,59 @@ class Server(threading.Thread):
         else:
             sc.sendall("FAILURE".encode('ascii'))
             return False
+
+    def updateUser(self, sc):
+        print("Server received update request")
+        try:
+            # Send prompt for username
+            sc.sendall("UPDATE_USERNAME".encode('ascii'))
+            username = sc.recv(1024).decode('ascii')
+            print(f"Server received username for update: {username}")
+
+            # Send prompt for password
+            sc.sendall("UPDATE_PASSWORD".encode('ascii'))
+            password = sc.recv(1024).decode('ascii')
+            print(f"Server received password for update: {password}")
+
+            # Check if the username exists
+            self.cursor.execute('SELECT * FROM users WHERE username=? AND password=?', (username, password))
+            if not self.cursor.fetchone():
+                sc.sendall("FAILURE".encode('ascii'))
+                print("Username does not exist.")
+                return False
+
+            # Send prompt for new username
+            sc.sendall("NEW_USERNAME".encode('ascii'))
+            new_username = sc.recv(1024).decode('ascii')
+            print(f"Server received new username: {new_username}")
+
+            # Send prompt for new password
+            sc.sendall("NEW_PASSWORD".encode('ascii'))
+            new_password = sc.recv(1024).decode('ascii')
+            print(f"Server received new password: {new_password}")
+
+            # Check if new username already exists
+            self.cursor.execute('SELECT * FROM users WHERE username=?', (new_username,))
+            if self.cursor.fetchone():
+                sc.sendall("FAILURE".encode('ascii'))
+                print("New username already exists.")
+                return False
+
+            # Update user information in the database
+            self.cursor.execute('UPDATE users SET username=?, password=? WHERE username=? AND password=?',
+                                (new_username, new_password, username, password))
+            self.conn.commit()  # Commit changes to the database
+
+            sc.sendall("SUCCESS".encode('ascii'))
+            print("User updated successfully.")
+            return True
+        except Exception as e:
+            print(f"Error updating user: {e}")
+            sc.sendall("FAILURE".encode('ascii'))
+            return False
+
+
+
 
     def broadcast(self, message, source):
         encrypted_message = self.cipher_suite.encrypt(message.encode('ascii'))
