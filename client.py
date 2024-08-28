@@ -5,6 +5,7 @@ import os
 import sys
 import tkinter as tk
 from cryptography.fernet import Fernet
+from tkinter import font
 
 class Send(threading.Thread):
     def __init__(self, sock, name, cipher_suite):
@@ -85,9 +86,12 @@ class Client:
             self.choice = choice
             window.destroy()
 
-        tk.Button(window, text="Login", command=lambda: set_choice('LOGIN')).pack()
-        tk.Button(window, text="Register", command=lambda: set_choice('REGISTER')).pack()
-        tk.Button(window, text="Update", command=lambda: set_choice('UPDATE')).pack()
+        custom_font = font.Font(family="Helvetica", size=12, weight="bold")
+    
+
+        tk.Button(window, text="Login", command=lambda: set_choice('LOGIN'), bg="#2C2F33", fg="#FFFFFF").pack()
+        tk.Button(window, text="Register", command=lambda: set_choice('REGISTER'), bg="#2C2F33", fg="#FFFFFF").pack()
+        tk.Button(window, text="Update", command=lambda: set_choice('UPDATE'), bg="#2C2F33", fg="#FFFFFF").pack()
 
 
         window.mainloop()
@@ -211,9 +215,13 @@ def chat_window(client):
     window = tk.Tk()
     window.title('Chatroom')
 
-    fromMessage = tk.Frame(master=window)
-    scrollBar = tk.Scrollbar(master=fromMessage)
-    messages = tk.Listbox(master=fromMessage, yscrollcommand=scrollBar.set)
+    window.configure(bg='#2C2F33')
+
+    custom_font = font.Font(family="Helvetica", size=12, weight="bold")
+
+    fromMessage = tk.Frame(master=window, bg='#2C2F33')
+    scrollBar = tk.Scrollbar(master=fromMessage, bg='#23272A')
+    messages = tk.Listbox(master=fromMessage, yscrollcommand=scrollBar.set , bg='#23272A', fg='#FFFFFF', font=custom_font, bd=0, highlightthickness=0)
     scrollBar.pack(side=tk.RIGHT, fill=tk.Y, expand=False)
     messages.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -223,8 +231,8 @@ def chat_window(client):
     receive.start()
 
     fromMessage.grid(row=0, column=0, columnspan=2, sticky="nsew")
-    fromEntry = tk.Frame(master=window)
-    textInput = tk.Entry(master=fromEntry)
+    fromEntry = tk.Frame(master=window, bg='#2C2F33')
+    textInput = tk.Entry(master=fromEntry, bg='#99AAB5', fg='#2C2F33', font=custom_font)
 
     textInput.pack(fill=tk.BOTH, expand=True)
     textInput.bind("<Return>", lambda x: client.send(textInput))
@@ -233,6 +241,8 @@ def chat_window(client):
     btnSend = tk.Button(
         master=window,
         text='Send',
+        bg='#7289DA', fg='#FFFFFF',
+        font=custom_font,
         command=lambda: client.send(textInput)
     )
 
