@@ -7,9 +7,9 @@ Then open a cmd then navigate to path where your client.py located, then run thi
 client.py 127.0.0.1
 
 To check the database run this codes via terminal:
-sqlite3 users.db
-.tables
-SELECT * FROM users;
+1) sqlite3 users.db
+2) .tables
+3) SELECT * FROM users;
 (Valid output should be like this:
 user|password
 admin|adminpassword
